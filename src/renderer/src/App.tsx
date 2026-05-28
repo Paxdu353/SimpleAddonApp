@@ -71,7 +71,7 @@ function App(): React.JSX.Element {
     <main className="app-shell">
       <section className="status-band">
         <div>
-          <p className="eyebrow">Simple Addon Injector GROS CACA</p>
+          <p className="eyebrow">Simple Addon Injector</p>
           <h1>{statusLabel}</h1>
           <p className="subtitle">
             Le watcher est pose automatiquement. Quand NationsGlory le retire, l addon choisi est
