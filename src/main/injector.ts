@@ -370,18 +370,11 @@ export class NationsGloryInjector {
     this.setStatus('injecting')
     this.log('INFO', `Injection de ${selectedAddon.name}.`)
     await this.injectFile(selectedAddon.localPath, join(modsPath, selectedAddon.fileName))
+    await this.injectFile(this.watcherPath, watcherDest)
 
     this.snapshot.lastInjectionAt = new Date().toISOString()
-    this.setStatus('injected')
-    this.log('OK', `${selectedAddon.name} injecte.`)
-
-    while (await this.isGameRunning()) {
-      this.setGameRunning(true)
-      await sleep(2000)
-    }
-
-    this.setGameRunning(false)
-    this.log('INFO', 'NationsGlory ferme. Re-armement automatique.')
+    this.setStatus('watching')
+    this.log('OK', `${selectedAddon.name} injecte. Watcher rearme.`)
   }
 
   private async findModsPath(): Promise<string | null> {
