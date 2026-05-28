@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: simple-addon
+appId: com.paxdu353.simpleaddonapp
+productName: SimpleAddonApp
 directories:
   buildResources: build
 files:

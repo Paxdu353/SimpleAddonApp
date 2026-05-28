@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { NationsGloryInjector } from './injector'
+import { startAutoUpdater } from './updater'
 
 const injector = new NationsGloryInjector()
 const startHidden = process.argv.includes('--hidden')
@@ -10,6 +11,8 @@ const startHidden = process.argv.includes('--hidden')
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 }
+
+startAutoUpdater()
 
 function createWindow(): void {
   // Create the browser window.
