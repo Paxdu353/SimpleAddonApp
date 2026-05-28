@@ -1,5 +1,6 @@
 appId: com.paxdu353.simpleaddonapp
 productName: SimpleAddonApp
+electronVersion: 40.4.1
 directories:
   buildResources: build
 files:

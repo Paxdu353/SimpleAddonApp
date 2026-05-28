@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -7,6 +7,9 @@ import { startAutoUpdater } from './updater'
 
 const injector = new NationsGloryInjector()
 const startHidden = process.argv.includes('--hidden')
+let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let quitting = false
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -16,7 +19,7 @@ startAutoUpdater()
 
 function createWindow(): void {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -30,10 +33,25 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    if (!mainWindow) return
+
     injector.attachWindow(mainWindow)
     if (!startHidden) {
       mainWindow.show()
     }
+  })
+
+  mainWindow.on('close', (event) => {
+    if (quitting || process.platform === 'darwin') {
+      return
+    }
+
+    event.preventDefault()
+    mainWindow?.hide()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -48,6 +66,41 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+function showMainWindow(): void {
+  if (!mainWindow) {
+    createWindow()
+    return
+  }
+
+  mainWindow.setSkipTaskbar(false)
+  mainWindow.show()
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
+}
+
+function createTray(): void {
+  if (tray) return
+
+  tray = new Tray(icon)
+  tray.setToolTip('SimpleAddonApp')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Ouvrir',
+        click: showMainWindow
+      },
+      {
+        label: 'Quitter',
+        click: () => {
+          quitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+  tray.on('double-click', showMainWindow)
 }
 
 // This method will be called when Electron has finished
@@ -74,6 +127,7 @@ app.whenReady().then(() => {
 
   injector.start()
 
+  createTray()
   createWindow()
 
   app.on('activate', function () {
@@ -84,16 +138,11 @@ app.whenReady().then(() => {
 })
 
 app.on('second-instance', () => {
-  const window = BrowserWindow.getAllWindows()[0]
-  if (!window) {
-    createWindow()
-    return
-  }
+  showMainWindow()
+})
 
-  window.setSkipTaskbar(false)
-  window.show()
-  if (window.isMinimized()) window.restore()
-  window.focus()
+app.on('before-quit', () => {
+  quitting = true
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common
