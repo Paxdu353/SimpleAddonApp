@@ -7,6 +7,7 @@ import { startAutoUpdater } from './updater'
 
 const injector = new NationsGloryInjector()
 const startHidden = process.argv.includes('--hidden')
+const appIcon = icon
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
@@ -25,7 +26,7 @@ function createWindow(): void {
     show: false,
     skipTaskbar: startHidden,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon: appIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -83,7 +84,7 @@ function showMainWindow(): void {
 function createTray(): void {
   if (tray) return
 
-  tray = new Tray(icon)
+  tray = new Tray(appIcon)
   tray.setToolTip('SimpleAddonApp')
   tray.setContextMenu(
     Menu.buildFromTemplate([

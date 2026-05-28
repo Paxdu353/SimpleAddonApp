@@ -19,6 +19,7 @@ extraResources:
       - '**/*'
 win:
   executableName: simple-addon
+  icon: build/icon.ico
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
