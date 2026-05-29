@@ -3,7 +3,12 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { NationsGloryInjector } from './injector'
-import { startAutoUpdater } from './updater'
+import {
+  getUpdateSnapshot,
+  installDownloadedUpdate,
+  startAutoUpdater,
+  type UpdateSnapshot
+} from './updater'
 
 const injector = new NationsGloryInjector()
 const startHidden = process.argv.includes('--hidden')
@@ -16,7 +21,21 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 }
 
-startAutoUpdater()
+startAutoUpdater((snapshot) => {
+  broadcastUpdateSnapshot(snapshot)
+
+  if (snapshot.status === 'downloaded') {
+    showMainWindow()
+  }
+})
+
+function broadcastUpdateSnapshot(snapshot: UpdateSnapshot): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send('updater:update', snapshot)
+    }
+  }
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -129,6 +148,11 @@ app.whenReady().then(() => {
   ipcMain.handle('injector:set-auto-start', (_event, enabled: boolean) =>
     injector.setAutoStartEnabled(enabled)
   )
+  ipcMain.handle('updater:get-snapshot', () => getUpdateSnapshot())
+  ipcMain.handle('updater:install-downloaded-update', () => {
+    quitting = true
+    installDownloadedUpdate()
+  })
 
   injector.start()
 

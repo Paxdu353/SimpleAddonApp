@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 
 type InjectorSnapshot = Awaited<ReturnType<typeof window.api.getInjectorSnapshot>>
+type UpdateSnapshot = Awaited<ReturnType<typeof window.api.getUpdateSnapshot>>
 
 function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<InjectorSnapshot | null>(null)
+  const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(null)
   const [pendingAddonId, setPendingAddonId] = useState<string | null>(null)
   const [pendingAutoStart, setPendingAutoStart] = useState(false)
   const [refreshingAddons, setRefreshingAddons] = useState(false)
+  const [installingUpdate, setInstallingUpdate] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -19,9 +22,18 @@ function App(): React.JSX.Element {
       setSnapshot(nextSnapshot)
     })
 
+    window.api.getUpdateSnapshot().then((nextSnapshot) => {
+      if (mounted) setUpdateSnapshot(nextSnapshot)
+    })
+
+    const unsubscribeUpdater = window.api.onUpdaterUpdate((nextSnapshot) => {
+      setUpdateSnapshot(nextSnapshot)
+    })
+
     return () => {
       mounted = false
       unsubscribe()
+      unsubscribeUpdater()
     }
   }, [])
 
@@ -29,6 +41,9 @@ function App(): React.JSX.Element {
   const recentLogs = useMemo(() => [...(snapshot?.logs ?? [])].reverse(), [snapshot?.logs])
 
   const toggleAddon = async (addonId: string, selected: boolean): Promise<void> => {
+    const addon = snapshot?.addons.find((candidate) => candidate.id === addonId)
+    if (addon?.required) return
+
     setPendingAddonId(addonId)
     try {
       const currentSelection = snapshot?.selectedAddonIds ?? []
@@ -60,6 +75,11 @@ function App(): React.JSX.Element {
     }
   }
 
+  const installUpdate = async (): Promise<void> => {
+    setInstallingUpdate(true)
+    await window.api.installDownloadedUpdate()
+  }
+
   return (
     <main className="app-shell">
       <section className="hero">
@@ -69,6 +89,21 @@ function App(): React.JSX.Element {
           {snapshot?.gameRunning ? 'NationsGlory actif' : 'En veille'}
         </div>
       </section>
+
+      {updateSnapshot?.status === 'downloaded' && (
+        <section className="update-banner">
+          <div>
+            <strong>Mise à jour prête</strong>
+            <p>
+              La version {updateSnapshot.version ?? 'téléchargée'} est téléchargée. Redémarre
+              l&apos;application pour l&apos;installer maintenant.
+            </p>
+          </div>
+          <button disabled={installingUpdate} type="button" onClick={installUpdate}>
+            {installingUpdate ? 'Redémarrage...' : 'Redémarrer et installer'}
+          </button>
+        </section>
+      )}
 
       <section className="workspace">
         <div className="left-column">
@@ -94,16 +129,22 @@ function App(): React.JSX.Element {
                 const pending = pendingAddonId === addon.id
 
                 return (
-                  <label className={`addon-option ${selected ? 'selected' : ''}`} key={addon.id}>
+                  <label
+                    className={`addon-option ${selected ? 'selected' : ''} ${addon.required ? 'locked' : ''}`}
+                    key={addon.id}
+                  >
                     <input
                       checked={selected}
-                      disabled={pendingAddonId !== null}
+                      disabled={pendingAddonId !== null || addon.required}
                       name="addon"
                       type="checkbox"
                       onChange={(event) => toggleAddon(addon.id, event.currentTarget.checked)}
                     />
                     <span>
-                      <strong>{addon.name}</strong>
+                      <div className="addon-title-row">
+                        <strong>{addon.displayName}</strong>
+                        {addon.version && <em>v{addon.version}</em>}
+                      </div>
                       <small>{pending ? 'Sélection en cours...' : formatBytes(addon.size)}</small>
                     </span>
                   </label>

@@ -27,8 +27,8 @@ body {
   width: min(1120px, calc(100vw - 40px));
   height: calc(100vh - 40px);
   margin: 20px auto;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 18px;
 }
 
@@ -95,10 +95,54 @@ h2 {
 }
 
 .workspace {
+  flex: 1 1 auto;
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(330px, 0.86fr) minmax(0, 1.14fr);
   gap: 16px;
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(20, 184, 166, 0.36);
+  border-radius: 8px;
+  background: rgba(20, 184, 166, 0.1);
+}
+
+.update-banner strong {
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.update-banner p {
+  margin-top: 3px;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.update-banner button {
+  flex: 0 0 auto;
+  min-width: 172px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(20, 184, 166, 0.48);
+  border-radius: 8px;
+  background: rgba(20, 184, 166, 0.18);
+  color: #99f6e4;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.update-banner button:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .left-column {
@@ -201,6 +245,10 @@ h2 {
   background: var(--accent-soft);
 }
 
+.addon-option.locked {
+  cursor: default;
+}
+
 .addon-option input,
 .toggle-row input {
   width: 18px;
@@ -222,6 +270,35 @@ h2 {
   font-size: 14px;
   font-weight: 800;
   line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.addon-option .addon-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.addon-option .addon-title-row strong {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.addon-title-row em {
+  flex: 0 0 auto;
+  max-width: 120px;
+  overflow: hidden;
+  padding: 2px 7px;
+  border: 1px solid rgba(20, 184, 166, 0.32);
+  border-radius: 999px;
+  background: rgba(20, 184, 166, 0.1);
+  color: #99f6e4;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -325,6 +402,15 @@ h2 {
   .hero {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .update-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .update-banner button {
+    width: 100%;
   }
 
   h1 {

@@ -22,6 +22,9 @@ type InjectorStatus =
 export interface RemoteAddon {
   id: string
   name: string
+  displayName: string
+  version: string | null
+  required: boolean
   fileName: string
   size: number
   updatedAt: string | null
@@ -70,10 +73,41 @@ const REPOSITORY_NAME = 'SimpleAddon'
 const GITHUB_API = 'https://api.github.com'
 const GAME_PROCESS_NAME = 'NationsGlory.exe'
 const WATCHER_FILE_NAME = 'watcher.jar'
+const REQUIRED_ADDON_NAME = 'zeph'
 const MAX_LOGS = 200
 const CONFIG_FILE_NAME = 'injector-config.json'
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+function isRequiredAddon(name: string): boolean {
+  return name.toLowerCase().includes(REQUIRED_ADDON_NAME)
+}
+
+function parseAddonName(name: string): { displayName: string; version: string | null } {
+  const versionMatch = name.match(
+    /(?:^|[\s._-])v?(\d+(?:\.\d+)+(?:[-+][a-z0-9._-]+)?)(?=$|[\s._-])/i
+  )
+
+  if (!versionMatch || versionMatch.index === undefined) {
+    return {
+      displayName: cleanupAddonName(name),
+      version: null
+    }
+  }
+
+  const versionStart = versionMatch.index
+  const versionEnd = versionStart + versionMatch[0].length
+  const displayName = cleanupAddonName(`${name.slice(0, versionStart)} ${name.slice(versionEnd)}`)
+
+  return {
+    displayName,
+    version: versionMatch[1]
+  }
+}
+
+function cleanupAddonName(name: string): string {
+  return name.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || name
+}
 
 export class NationsGloryInjector {
   private snapshot: InjectorSnapshot = {
@@ -124,7 +158,7 @@ export class NationsGloryInjector {
   }
 
   async setSelectedAddons(addonIds: string[]): Promise<InjectorSnapshot> {
-    const nextAddonIds = [...new Set(addonIds)]
+    const nextAddonIds = this.withRequiredAddonIds(addonIds)
 
     for (const addonId of nextAddonIds) {
       if (!this.assets.has(addonId)) {
@@ -293,13 +327,20 @@ export class NationsGloryInjector {
         this.assets.set(asset.id, asset)
       }
 
-      this.snapshot.addons = [...this.assets.values()].map((addon) => ({
-        id: addon.id,
-        name: addon.name,
-        fileName: addon.fileName,
-        size: addon.size,
-        updatedAt: addon.updatedAt
-      }))
+      this.setSelectedAddonIds(this.withRequiredAddonIds(this.snapshot.selectedAddonIds))
+
+      this.snapshot.addons = [...this.assets.values()]
+        .sort((a, b) => Number(b.required) - Number(a.required) || a.name.localeCompare(b.name))
+        .map((addon) => ({
+          id: addon.id,
+          name: addon.name,
+          displayName: addon.displayName,
+          version: addon.version,
+          required: addon.required,
+          fileName: addon.fileName,
+          size: addon.size,
+          updatedAt: addon.updatedAt
+        }))
       this.snapshot.repositoryReady = true
 
       const availableSelectedIds = this.snapshot.selectedAddonIds.filter((addonId) =>
@@ -311,7 +352,7 @@ export class NationsGloryInjector {
         await this.saveConfig()
       }
 
-      this.setSelectedAddonIds(this.snapshot.selectedAddonIds)
+      this.setSelectedAddonIds(this.withRequiredAddonIds(this.snapshot.selectedAddonIds))
 
       this.log('OK', `${this.snapshot.addons.length} addon(s) récupéré(s) depuis GitHub.`)
     } catch (error) {
@@ -353,10 +394,14 @@ export class NationsGloryInjector {
   private toCachedAsset(item: GitHubTreeItem, localPath: string): CachedAsset {
     const fileName = item.path.split('/').at(-1) ?? item.path
     const name = fileName.replace(/\.jar$/i, '')
+    const { displayName, version } = parseAddonName(name)
 
     return {
       id: item.path,
       name,
+      displayName,
+      version,
+      required: isRequiredAddon(name),
       fileName,
       size: item.size ?? 0,
       updatedAt: null,
@@ -428,7 +473,7 @@ export class NationsGloryInjector {
     this.setStatus('injecting')
     this.log(
       'INFO',
-      `Injection de ${selectedAddons.length} addon(s): ${selectedAddons.map((addon) => addon.name).join(', ')}.`
+      `Injection de ${selectedAddons.length} addon(s): ${selectedAddons.map((addon) => addon.displayName).join(', ')}.`
     )
 
     for (const addon of selectedAddons) {
@@ -584,9 +629,9 @@ export class NationsGloryInjector {
   }
 
   private setSelectedAddonIds(addonIds: string[]): void {
-    const selectedAddonIds = [...new Set(addonIds)]
+    const selectedAddonIds = this.withRequiredAddonIds(addonIds)
     const selectedAddonNames = selectedAddonIds
-      .map((addonId) => this.assets.get(addonId)?.name)
+      .map((addonId) => this.assets.get(addonId)?.displayName)
       .filter((name): name is string => Boolean(name))
 
     this.snapshot.selectedAddonIds = selectedAddonIds
@@ -594,6 +639,14 @@ export class NationsGloryInjector {
     this.snapshot.selectedAddonId = selectedAddonIds[0] ?? null
     this.snapshot.selectedAddonName =
       selectedAddonNames.length > 0 ? selectedAddonNames.join(', ') : null
+  }
+
+  private withRequiredAddonIds(addonIds: string[]): string[] {
+    const requiredAddonIds = [...this.assets.values()]
+      .filter((addon) => addon.required)
+      .map((addon) => addon.id)
+
+    return [...new Set([...requiredAddonIds, ...addonIds])]
   }
 
   private setStatus(status: InjectorStatus): void {

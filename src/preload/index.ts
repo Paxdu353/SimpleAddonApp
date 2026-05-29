@@ -9,6 +9,15 @@ const api = {
     ipcRenderer.invoke('injector:set-selected-addons', addonIds),
   refreshAddons: () => ipcRenderer.invoke('injector:refresh-addons'),
   setAutoStartEnabled: (enabled: boolean) => ipcRenderer.invoke('injector:set-auto-start', enabled),
+  getUpdateSnapshot: () => ipcRenderer.invoke('updater:get-snapshot'),
+  installDownloadedUpdate: () => ipcRenderer.invoke('updater:install-downloaded-update'),
+  onUpdaterUpdate: (callback: (snapshot: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: unknown): void =>
+      callback(snapshot)
+    ipcRenderer.on('updater:update', listener)
+
+    return () => ipcRenderer.removeListener('updater:update', listener)
+  },
   onInjectorUpdate: (callback: (snapshot: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: unknown): void =>
       callback(snapshot)

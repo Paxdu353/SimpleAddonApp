@@ -9,6 +9,9 @@ export interface InjectorLog {
 export interface RemoteAddon {
   id: string
   name: string
+  displayName: string
+  version: string | null
+  required: boolean
   fileName: string
   size: number
   updatedAt: string | null
@@ -38,12 +41,21 @@ export interface InjectorSnapshot {
   logs: InjectorLog[]
 }
 
+export interface UpdateSnapshot {
+  status: 'idle' | 'checking' | 'available' | 'downloaded' | 'error'
+  version: string | null
+  error: string | null
+}
+
 export interface InjectorApi {
   getInjectorSnapshot: () => Promise<InjectorSnapshot>
   setSelectedAddon: (addonId: string) => Promise<InjectorSnapshot>
   setSelectedAddons: (addonIds: string[]) => Promise<InjectorSnapshot>
   refreshAddons: () => Promise<InjectorSnapshot>
   setAutoStartEnabled: (enabled: boolean) => Promise<InjectorSnapshot>
+  getUpdateSnapshot: () => Promise<UpdateSnapshot>
+  installDownloadedUpdate: () => Promise<void>
+  onUpdaterUpdate: (callback: (snapshot: UpdateSnapshot) => void) => () => void
   onInjectorUpdate: (callback: (snapshot: InjectorSnapshot) => void) => () => void
 }
 
