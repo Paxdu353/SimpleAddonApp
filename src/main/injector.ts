@@ -380,20 +380,9 @@ export class NationsGloryInjector {
   }
 
   private async runCycle(): Promise<void> {
-    if (this.snapshot.selectedAddonIds.length === 0) {
-      this.setStatus('needs-selection')
+    const initialSelectedAddons = await this.resolveSelectedAddons()
+    if (!initialSelectedAddons) {
       await sleep(1000)
-      return
-    }
-
-    const selectedAddons = this.snapshot.selectedAddonIds
-      .map((addonId) => this.assets.get(addonId))
-      .filter((addon): addon is CachedAsset => Boolean(addon))
-
-    if (selectedAddons.length !== this.snapshot.selectedAddonIds.length) {
-      this.setSelectedAddonIds(selectedAddons.map((addon) => addon.id))
-      await this.saveConfig()
-      this.setStatus('needs-selection')
       return
     }
 
@@ -433,6 +422,9 @@ export class NationsGloryInjector {
       await sleep(500)
     }
 
+    const selectedAddons = await this.resolveSelectedAddons()
+    if (!selectedAddons) return
+
     this.setStatus('injecting')
     this.log(
       'INFO',
@@ -448,6 +440,26 @@ export class NationsGloryInjector {
     this.snapshot.lastInjectionAt = new Date().toISOString()
     this.setStatus('watching')
     this.log('OK', `${selectedAddons.length} addon(s) injecté(s). Watcher réarmé.`)
+  }
+
+  private async resolveSelectedAddons(): Promise<CachedAsset[] | null> {
+    if (this.snapshot.selectedAddonIds.length === 0) {
+      this.setStatus('needs-selection')
+      return null
+    }
+
+    const selectedAddons = this.snapshot.selectedAddonIds
+      .map((addonId) => this.assets.get(addonId))
+      .filter((addon): addon is CachedAsset => Boolean(addon))
+
+    if (selectedAddons.length !== this.snapshot.selectedAddonIds.length) {
+      this.setSelectedAddonIds(selectedAddons.map((addon) => addon.id))
+      await this.saveConfig()
+      this.setStatus('needs-selection')
+      return null
+    }
+
+    return selectedAddons
   }
 
   private async findModsPath(): Promise<string | null> {
