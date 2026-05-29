@@ -26,6 +26,8 @@ export interface InjectorSnapshot {
     | 'injected'
     | 'error'
   addons: RemoteAddon[]
+  selectedAddonIds: string[]
+  selectedAddonNames: string[]
   selectedAddonId: string | null
   selectedAddonName: string | null
   repositoryReady: boolean
@@ -39,6 +41,8 @@ export interface InjectorSnapshot {
 export interface InjectorApi {
   getInjectorSnapshot: () => Promise<InjectorSnapshot>
   setSelectedAddon: (addonId: string) => Promise<InjectorSnapshot>
+  setSelectedAddons: (addonIds: string[]) => Promise<InjectorSnapshot>
+  refreshAddons: () => Promise<InjectorSnapshot>
   setAutoStartEnabled: (enabled: boolean) => Promise<InjectorSnapshot>
   onInjectorUpdate: (callback: (snapshot: InjectorSnapshot) => void) => () => void
 }

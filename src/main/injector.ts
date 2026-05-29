@@ -30,6 +30,8 @@ export interface RemoteAddon {
 export interface InjectorSnapshot {
   status: InjectorStatus
   addons: RemoteAddon[]
+  selectedAddonIds: string[]
+  selectedAddonNames: string[]
   selectedAddonId: string | null
   selectedAddonName: string | null
   repositoryReady: boolean
@@ -47,6 +49,7 @@ export interface InjectorLog {
 }
 
 interface StoredConfig {
+  selectedAddonIds?: string[]
   selectedAddonId: string | null
   autoStartEnabled: boolean
 }
@@ -76,6 +79,8 @@ export class NationsGloryInjector {
   private snapshot: InjectorSnapshot = {
     status: 'syncing',
     addons: [],
+    selectedAddonIds: [],
+    selectedAddonNames: [],
     selectedAddonId: null,
     selectedAddonName: null,
     repositoryReady: false,
@@ -92,6 +97,7 @@ export class NationsGloryInjector {
   private started = false
   private lastLogKey: string | null = null
   private configPath: string | null = null
+  private syncPromise: Promise<void> | null = null
 
   start(): void {
     if (this.started) return
@@ -111,19 +117,48 @@ export class NationsGloryInjector {
     return {
       ...this.snapshot,
       addons: [...this.snapshot.addons],
+      selectedAddonIds: [...this.snapshot.selectedAddonIds],
+      selectedAddonNames: [...this.snapshot.selectedAddonNames],
       logs: [...this.snapshot.logs]
     }
   }
 
-  async setSelectedAddon(addonId: string): Promise<InjectorSnapshot> {
-    if (!this.assets.has(addonId)) {
-      throw new Error('Addon introuvable dans le catalogue.')
+  async setSelectedAddons(addonIds: string[]): Promise<InjectorSnapshot> {
+    const nextAddonIds = [...new Set(addonIds)]
+
+    for (const addonId of nextAddonIds) {
+      if (!this.assets.has(addonId)) {
+        throw new Error('Addon introuvable dans le catalogue.')
+      }
     }
 
-    this.snapshot.selectedAddonId = addonId
-    this.snapshot.selectedAddonName = this.assets.get(addonId)?.name ?? null
+    this.setSelectedAddonIds(nextAddonIds)
     await this.saveConfig()
-    this.log('OK', `Addon selectionne: ${this.snapshot.selectedAddonName}`)
+    this.log(
+      'OK',
+      nextAddonIds.length > 0
+        ? `Addons sélectionnés: ${this.snapshot.selectedAddonNames.join(', ')}`
+        : 'Aucun addon sélectionné.'
+    )
+    this.emit()
+    return this.getSnapshot()
+  }
+
+  async setSelectedAddon(addonId: string): Promise<InjectorSnapshot> {
+    return this.setSelectedAddons([addonId])
+  }
+
+  async refreshAddons(): Promise<InjectorSnapshot> {
+    const previousStatus = this.snapshot.status
+
+    try {
+      await this.syncRepository()
+    } finally {
+      if (this.snapshot.status === 'syncing') {
+        this.setStatus(previousStatus === 'syncing' ? 'searching' : previousStatus)
+      }
+    }
+
     this.emit()
     return this.getSnapshot()
   }
@@ -143,17 +178,26 @@ export class NationsGloryInjector {
     this.log(
       'OK',
       enabled
-        ? 'Demarrage automatique active. L application attendra NationsGlory apres ouverture de Windows.'
-        : 'Demarrage automatique desactive.'
+        ? "Démarrage automatique activé. L'application attendra NationsGlory après l'ouverture de Windows."
+        : 'Démarrage automatique désactivé.'
     )
     this.emit()
     return this.getSnapshot()
   }
 
   private async bootstrap(): Promise<void> {
-    this.log('INFO', 'Synchronisation avec le depot GitHub public.')
+    this.log(
+      'INFO',
+      `Synchronisation avec le dépôt GitHub public ${REPOSITORY_OWNER}/${REPOSITORY_NAME}.`
+    )
     await this.loadConfig()
-    await this.syncRepository()
+    while (!this.snapshot.repositoryReady) {
+      try {
+        await this.syncRepository()
+      } catch {
+        await sleep(5000)
+      }
+    }
     void this.runForever()
   }
 
@@ -162,8 +206,15 @@ export class NationsGloryInjector {
 
     try {
       const config = JSON.parse(await readFile(this.configPath, 'utf8')) as Partial<StoredConfig>
-      this.snapshot.selectedAddonId =
-        typeof config.selectedAddonId === 'string' ? config.selectedAddonId : null
+      const selectedAddonIds = Array.isArray(config.selectedAddonIds)
+        ? config.selectedAddonIds.filter(
+            (addonId): addonId is string => typeof addonId === 'string'
+          )
+        : typeof config.selectedAddonId === 'string'
+          ? [config.selectedAddonId]
+          : []
+
+      this.setSelectedAddonIds(selectedAddonIds)
       this.snapshot.autoStartEnabled = config.autoStartEnabled === true
 
       if (process.platform === 'win32') {
@@ -185,6 +236,7 @@ export class NationsGloryInjector {
       JSON.stringify(
         {
           selectedAddonId: this.snapshot.selectedAddonId,
+          selectedAddonIds: this.snapshot.selectedAddonIds,
           autoStartEnabled: this.snapshot.autoStartEnabled
         } satisfies StoredConfig,
         null,
@@ -195,6 +247,19 @@ export class NationsGloryInjector {
   }
 
   private async syncRepository(): Promise<void> {
+    if (this.syncPromise) {
+      await this.syncPromise
+      return
+    }
+
+    this.syncPromise = this.syncRepositoryOnce().finally(() => {
+      this.syncPromise = null
+    })
+
+    await this.syncPromise
+  }
+
+  private async syncRepositoryOnce(): Promise<void> {
     this.setStatus('syncing')
 
     try {
@@ -208,11 +273,11 @@ export class NationsGloryInjector {
       const addons = jars.filter((jar) => jar !== watcher)
 
       if (!watcher) {
-        throw new Error('Aucun watcher.jar trouve dans le depot GitHub.')
+        throw new Error('Aucun watcher.jar trouvé dans le dépôt GitHub.')
       }
 
       if (addons.length === 0) {
-        throw new Error('Aucun addon injectable trouve dans le depot GitHub.')
+        throw new Error('Aucun addon injectable trouvé dans le dépôt GitHub.')
       }
 
       const cacheDir = join(app.getPath('userData'), 'github-cache')
@@ -237,25 +302,24 @@ export class NationsGloryInjector {
       }))
       this.snapshot.repositoryReady = true
 
-      if (this.snapshot.selectedAddonId && !this.assets.has(this.snapshot.selectedAddonId)) {
-        this.snapshot.selectedAddonId = null
-        this.snapshot.selectedAddonName = null
+      const availableSelectedIds = this.snapshot.selectedAddonIds.filter((addonId) =>
+        this.assets.has(addonId)
+      )
+
+      if (availableSelectedIds.length !== this.snapshot.selectedAddonIds.length) {
+        this.setSelectedAddonIds(availableSelectedIds)
         await this.saveConfig()
       }
 
-      if (this.snapshot.selectedAddonId) {
-        this.snapshot.selectedAddonName =
-          this.assets.get(this.snapshot.selectedAddonId)?.name ?? null
-      }
+      this.setSelectedAddonIds(this.snapshot.selectedAddonIds)
 
-      this.log('OK', `${this.snapshot.addons.length} addon(s) recuperes depuis GitHub.`)
+      this.log('OK', `${this.snapshot.addons.length} addon(s) récupéré(s) depuis GitHub.`)
     } catch (error) {
       this.snapshot.repositoryReady = false
       this.snapshot.watcherReady = false
       this.setStatus('error')
       this.log('ERROR', error instanceof Error ? error.message : String(error))
-      await sleep(5000)
-      await this.syncRepository()
+      throw error
     }
   }
 
@@ -302,7 +366,7 @@ export class NationsGloryInjector {
   }
 
   private async runForever(): Promise<void> {
-    this.log('INFO', 'Injector pret. Selectionne un addon, puis lance NationsGlory.')
+    this.log('INFO', 'Injecteur prêt. Sélectionne un ou plusieurs addons, puis lance NationsGlory.')
 
     while (true) {
       try {
@@ -316,16 +380,18 @@ export class NationsGloryInjector {
   }
 
   private async runCycle(): Promise<void> {
-    if (!this.snapshot.selectedAddonId) {
+    if (this.snapshot.selectedAddonIds.length === 0) {
       this.setStatus('needs-selection')
       await sleep(1000)
       return
     }
 
-    const selectedAddon = this.assets.get(this.snapshot.selectedAddonId)
-    if (!selectedAddon) {
-      this.snapshot.selectedAddonId = null
-      this.snapshot.selectedAddonName = null
+    const selectedAddons = this.snapshot.selectedAddonIds
+      .map((addonId) => this.assets.get(addonId))
+      .filter((addon): addon is CachedAsset => Boolean(addon))
+
+    if (selectedAddons.length !== this.snapshot.selectedAddonIds.length) {
+      this.setSelectedAddonIds(selectedAddons.map((addon) => addon.id))
       await this.saveConfig()
       this.setStatus('needs-selection')
       return
@@ -348,7 +414,7 @@ export class NationsGloryInjector {
     const watcherDest = join(modsPath, WATCHER_FILE_NAME)
     await this.injectFile(this.watcherPath, watcherDest)
     this.setStatus('armed')
-    this.log('OK', 'Watcher installe automatiquement.')
+    this.log('OK', 'Watcher installé automatiquement.')
 
     this.setStatus('waiting-game')
     this.log('INFO', `En attente de ${GAME_PROCESS_NAME}.`)
@@ -360,7 +426,7 @@ export class NationsGloryInjector {
 
     this.setGameRunning(true)
     this.setStatus('watching')
-    this.log('INFO', `${GAME_PROCESS_NAME} detecte. Surveillance active.`)
+    this.log('INFO', `${GAME_PROCESS_NAME} détecté.`)
 
     while (await this.pathExists(watcherDest)) {
       this.setGameRunning(await this.isGameRunning())
@@ -368,13 +434,20 @@ export class NationsGloryInjector {
     }
 
     this.setStatus('injecting')
-    this.log('INFO', `Injection de ${selectedAddon.name}.`)
-    await this.injectFile(selectedAddon.localPath, join(modsPath, selectedAddon.fileName))
+    this.log(
+      'INFO',
+      `Injection de ${selectedAddons.length} addon(s): ${selectedAddons.map((addon) => addon.name).join(', ')}.`
+    )
+
+    for (const addon of selectedAddons) {
+      await this.injectFile(addon.localPath, join(modsPath, addon.fileName))
+    }
+
     await this.injectFile(this.watcherPath, watcherDest)
 
     this.snapshot.lastInjectionAt = new Date().toISOString()
     this.setStatus('watching')
-    this.log('OK', `${selectedAddon.name} injecte. Watcher rearme.`)
+    this.log('OK', `${selectedAddons.length} addon(s) injecté(s). Watcher réarmé.`)
   }
 
   private async findModsPath(): Promise<string | null> {
@@ -481,7 +554,7 @@ export class NationsGloryInjector {
 
           if (statusCode < 200 || statusCode >= 300) {
             response.resume()
-            reject(new Error(`GitHub a repondu avec le statut ${statusCode}.`))
+            reject(new Error(`GitHub a répondu avec le statut ${statusCode}.`))
             return
           }
 
@@ -493,9 +566,22 @@ export class NationsGloryInjector {
 
       request.on('error', reject)
       request.setTimeout(15000, () => {
-        request.destroy(new Error('Delai depasse pendant la connexion a GitHub.'))
+        request.destroy(new Error('Délai dépassé pendant la connexion à GitHub.'))
       })
     })
+  }
+
+  private setSelectedAddonIds(addonIds: string[]): void {
+    const selectedAddonIds = [...new Set(addonIds)]
+    const selectedAddonNames = selectedAddonIds
+      .map((addonId) => this.assets.get(addonId)?.name)
+      .filter((name): name is string => Boolean(name))
+
+    this.snapshot.selectedAddonIds = selectedAddonIds
+    this.snapshot.selectedAddonNames = selectedAddonNames
+    this.snapshot.selectedAddonId = selectedAddonIds[0] ?? null
+    this.snapshot.selectedAddonName =
+      selectedAddonNames.length > 0 ? selectedAddonNames.join(', ') : null
   }
 
   private setStatus(status: InjectorStatus): void {

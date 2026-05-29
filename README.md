@@ -1,9 +1,18 @@
 # SimpleAddonApp
 
-Application Electron qui injecte automatiquement un addon NationsGlory apres selection du mod dans l'interface.
+Application Electron qui injecte automatiquement un ou plusieurs addons NationsGlory après sélection dans l'interface.
 
-Les mods viennent du depot GitHub public `Paxdu353/SimpleAddon`.
-Les mises a jour de l'application viennent des releases GitHub de `Paxdu353/SimpleAddonApp`.
+Les addons viennent du dépôt GitHub public `Paxdu353/SimpleAddon`.
+Le code source doit vivre dans le dépôt privé `Paxdu353/SimpleAddonSourceCode`.
+Les mises à jour de l'application restent sur les releases GitHub de `Paxdu353/SimpleAddonApp`.
+
+## Organisation GitHub
+
+- `Paxdu353/SimpleAddonSourceCode`: dépôt privé du code source.
+- `Paxdu353/SimpleAddonApp`: dépôt public utilisé par `electron-updater` pour les releases de l'application.
+- `Paxdu353/SimpleAddon`: dépôt public utilisé comme catalogue d'addons et de `watcher.jar`.
+
+Pour garder cette séparation, publie les tags et les fichiers de release sur `SimpleAddonApp`, mais pousse le code source sur `SimpleAddonSourceCode`.
 
 ## Installation dev
 
@@ -17,7 +26,7 @@ pnpm install
 pnpm dev
 ```
 
-En dev, l'auto-update est desactive.
+En dev, l'auto-update est désactivé.
 
 ## Build Windows
 
@@ -27,9 +36,9 @@ pnpm run build:win
 
 Les fichiers sortent dans `dist/`.
 
-## Faire une mise a jour de l'application
+## Faire une mise à jour de l'application
 
-1. Verifier que le repo est propre :
+1. Vérifier que le dépôt est propre :
 
 ```bash
 git status
@@ -43,28 +52,33 @@ pnpm version patch
 
 Exemple : `1.0.1` devient `1.0.2`.
 
-3. Generer le build Windows :
+3. Générer le build Windows :
 
 ```bash
 pnpm run build:win
 ```
 
-4. Pousser le commit et le tag :
+4. Pousser le code source vers le dépôt privé :
 
 ```bash
-git push origin master
+git push source master
+```
+
+5. Pousser le tag vers le dépôt de releases :
+
+```bash
 git push origin --tags
 ```
 
-5. Creer une GitHub Release sur `Paxdu353/SimpleAddonApp`.
+6. Créer une GitHub Release sur `Paxdu353/SimpleAddonApp`.
 
-Le tag doit etre exactement la version generee, par exemple :
+Le tag doit être exactement la version générée, par exemple :
 
 ```text
 v1.0.2
 ```
 
-6. Ajouter exactement ces 3 fichiers depuis `dist/` :
+7. Ajouter exactement ces 3 fichiers depuis `dist/` :
 
 ```text
 simple-addon-X.Y.Z-setup.exe
@@ -80,15 +94,15 @@ latest.yml
 simple-addon-1.0.2-setup.exe.blockmap
 ```
 
-7. Publier la release.
+8. Publier la release.
 
 ## Important
 
 - Ne pas renommer les fichiers dans la release.
-- `latest.yml` doit etre present, sinon l'auto-update ne fonctionne pas.
-- Le fichier `.blockmap` doit etre present pour les mises a jour differentielles.
-- Les utilisateurs ne recevront une update que si la version GitHub est plus grande que leur version installee.
-- L'app verifie les updates au lancement puis toutes les 15 minutes.
-- Une update telechargee s'installe quand l'app quitte vraiment.
+- `latest.yml` doit être présent, sinon l'auto-update ne fonctionne pas.
+- Le fichier `.blockmap` doit être présent pour les mises à jour différentielles.
+- Les utilisateurs ne recevront une update que si la version GitHub est plus grande que leur version installée.
+- L'app vérifie les updates au lancement puis toutes les 15 minutes.
+- Une update téléchargée s'installe quand l'app quitte vraiment.
 
-Pour quitter vraiment l'app : icone de la zone de notification Windows, clic droit, `Quitter`.
+Pour quitter vraiment l'app : icône de la zone de notification Windows, clic droit, `Quitter`.

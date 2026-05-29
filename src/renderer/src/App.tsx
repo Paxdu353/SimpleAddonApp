@@ -6,6 +6,7 @@ function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<InjectorSnapshot | null>(null)
   const [pendingAddonId, setPendingAddonId] = useState<string | null>(null)
   const [pendingAutoStart, setPendingAutoStart] = useState(false)
+  const [refreshingAddons, setRefreshingAddons] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -24,16 +25,29 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-  const status = getStatus(snapshot)
-  const selectedAddonName = snapshot?.selectedAddonName ?? 'Aucun addon selectionne'
+  const selectedAddonLabel = getSelectedAddonLabel(snapshot)
   const recentLogs = useMemo(() => [...(snapshot?.logs ?? [])].reverse(), [snapshot?.logs])
 
-  const selectAddon = async (addonId: string): Promise<void> => {
+  const toggleAddon = async (addonId: string, selected: boolean): Promise<void> => {
     setPendingAddonId(addonId)
     try {
-      setSnapshot(await window.api.setSelectedAddon(addonId))
+      const currentSelection = snapshot?.selectedAddonIds ?? []
+      const nextSelection = selected
+        ? [...currentSelection, addonId]
+        : currentSelection.filter((selectedAddonId) => selectedAddonId !== addonId)
+
+      setSnapshot(await window.api.setSelectedAddons(nextSelection))
     } finally {
       setPendingAddonId(null)
+    }
+  }
+
+  const refreshAddons = async (): Promise<void> => {
+    setRefreshingAddons(true)
+    try {
+      setSnapshot(await window.api.refreshAddons())
+    } finally {
+      setRefreshingAddons(false)
     }
   }
 
@@ -49,11 +63,7 @@ function App(): React.JSX.Element {
   return (
     <main className="app-shell">
       <section className="hero">
-        <div>
-          <p className="eyebrow">SimpleAddonApp</p>
-          <h1>{status.title}</h1>
-          <p className="subtitle">{status.description}</p>
-        </div>
+        <h1>SimpleAddon</h1>
         <div className={`status-pill status-${snapshot?.status ?? 'syncing'}`}>
           <span></span>
           {snapshot?.gameRunning ? 'NationsGlory actif' : 'En veille'}
@@ -65,15 +75,22 @@ function App(): React.JSX.Element {
           <section className="panel selection-panel">
             <header className="panel-header">
               <div>
-                <h2>Addon a injecter</h2>
-                <p>{selectedAddonName}</p>
+                <h2>Addons à injecter</h2>
+                <p>{selectedAddonLabel}</p>
               </div>
-              <strong>{snapshot?.addons.length ?? 0}</strong>
+              <button
+                className="refresh-button"
+                disabled={refreshingAddons}
+                type="button"
+                onClick={refreshAddons}
+              >
+                {refreshingAddons ? 'Rafraîchissement...' : 'Rafraîchir'}
+              </button>
             </header>
 
             <div className="addon-list">
               {(snapshot?.addons ?? []).map((addon) => {
-                const selected = snapshot?.selectedAddonId === addon.id
+                const selected = snapshot?.selectedAddonIds.includes(addon.id) ?? false
                 const pending = pendingAddonId === addon.id
 
                 return (
@@ -82,18 +99,18 @@ function App(): React.JSX.Element {
                       checked={selected}
                       disabled={pendingAddonId !== null}
                       name="addon"
-                      type="radio"
-                      onChange={() => selectAddon(addon.id)}
+                      type="checkbox"
+                      onChange={(event) => toggleAddon(addon.id, event.currentTarget.checked)}
                     />
                     <span>
                       <strong>{addon.name}</strong>
-                      <small>{pending ? 'Selection en cours...' : formatBytes(addon.size)}</small>
+                      <small>{pending ? 'Sélection en cours...' : formatBytes(addon.size)}</small>
                     </span>
                   </label>
                 )
               })}
               {snapshot?.repositoryReady === false && (
-                <div className="empty-state">Recuperation du catalogue GitHub...</div>
+                <div className="empty-state">Récupération du catalogue GitHub...</div>
               )}
             </div>
           </section>
@@ -108,7 +125,7 @@ function App(): React.JSX.Element {
               />
               <span>
                 <strong>Lancer avec Windows</strong>
-                <small>Garde l&apos;injector pret en arriere-plan.</small>
+                <small>Garde l&apos;injecteur prêt en arrière-plan.</small>
               </span>
             </label>
           </section>
@@ -117,8 +134,8 @@ function App(): React.JSX.Element {
         <section className="panel log-panel">
           <header className="panel-header">
             <div>
-              <h2>Activite</h2>
-              <p>Les evenements les plus recents sont affiches en premier.</p>
+              <h2>Activité</h2>
+              <p>Les événements les plus récents sont affichés en premier.</p>
             </div>
             <strong>{recentLogs.length}</strong>
           </header>
@@ -138,50 +155,14 @@ function App(): React.JSX.Element {
   )
 }
 
-function getStatus(snapshot: InjectorSnapshot | null): { title: string; description: string } {
-  switch (snapshot?.status) {
-    case 'syncing':
-      return {
-        title: 'Synchronisation',
-        description: 'Recuperation du watcher et des addons depuis GitHub.'
-      }
-    case 'needs-selection':
-      return {
-        title: 'Selection requise',
-        description: 'Choisis un addon avant de lancer NationsGlory.'
-      }
-    case 'armed':
-    case 'waiting-game':
-      return {
-        title: 'Pret',
-        description: 'Le watcher est en place. Lance NationsGlory pour demarrer la surveillance.'
-      }
-    case 'watching':
-      return {
-        title: 'Surveillance active',
-        description: 'A chaque suppression du watcher, le mod choisi est reinjecte automatiquement.'
-      }
-    case 'injecting':
-      return {
-        title: 'Injection',
-        description: 'Le watcher a ete retire, injection du mod selectionne.'
-      }
-    case 'injected':
-      return {
-        title: 'Injection terminee',
-        description: 'Le mod a ete injecte avec succes.'
-      }
-    case 'error':
-      return {
-        title: 'Action requise',
-        description: 'Une erreur bloque le cycle. Consulte les logs pour le detail.'
-      }
-    default:
-      return {
-        title: 'Preparation',
-        description: 'Initialisation de l injector.'
-      }
+function getSelectedAddonLabel(snapshot: InjectorSnapshot | null): string {
+  const selectedNames = snapshot?.selectedAddonNames ?? []
+
+  if (selectedNames.length === 0) {
+    return 'Aucun addon sélectionné'
   }
+
+  return selectedNames.join(', ')
 }
 
 function formatBytes(bytes: number): string {

@@ -122,6 +122,10 @@ app.whenReady().then(() => {
   ipcMain.handle('injector:set-selected-addon', (_event, addonId: string) =>
     injector.setSelectedAddon(addonId)
   )
+  ipcMain.handle('injector:set-selected-addons', (_event, addonIds: string[]) =>
+    injector.setSelectedAddons(addonIds)
+  )
+  ipcMain.handle('injector:refresh-addons', () => injector.refreshAddons())
   ipcMain.handle('injector:set-auto-start', (_event, enabled: boolean) =>
     injector.setAutoStartEnabled(enabled)
   )
