@@ -10,6 +10,7 @@ const api = {
   refreshAddons: () => ipcRenderer.invoke('injector:refresh-addons'),
   setAutoStartEnabled: (enabled: boolean) => ipcRenderer.invoke('injector:set-auto-start', enabled),
   getUpdateSnapshot: () => ipcRenderer.invoke('updater:get-snapshot'),
+  checkForAppUpdates: () => ipcRenderer.invoke('updater:check-for-updates'),
   installDownloadedUpdate: () => ipcRenderer.invoke('updater:install-downloaded-update'),
   onUpdaterUpdate: (callback: (snapshot: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: unknown): void =>

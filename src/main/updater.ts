@@ -65,6 +65,29 @@ export function getUpdateSnapshot(): UpdateSnapshot {
   return { ...updateSnapshot }
 }
 
+export async function checkForAppUpdates(): Promise<UpdateSnapshot> {
+  if (is.dev) {
+    setUpdateSnapshot({
+      status: 'idle',
+      version: app.getVersion(),
+      error: null
+    })
+    return getUpdateSnapshot()
+  }
+
+  try {
+    setUpdateSnapshot({ status: 'checking', error: null })
+    await autoUpdater.checkForUpdatesAndNotify()
+  } catch (error) {
+    setUpdateSnapshot({
+      status: 'error',
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+
+  return getUpdateSnapshot()
+}
+
 export function installDownloadedUpdate(): void {
   if (updateSnapshot.status !== 'downloaded') {
     return

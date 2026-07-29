@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { NationsGloryInjector } from './injector'
 import {
+  checkForAppUpdates,
   getUpdateSnapshot,
   installDownloadedUpdate,
   startAutoUpdater,
@@ -149,6 +150,7 @@ app.whenReady().then(() => {
     injector.setAutoStartEnabled(enabled)
   )
   ipcMain.handle('updater:get-snapshot', () => getUpdateSnapshot())
+  ipcMain.handle('updater:check-for-updates', () => checkForAppUpdates())
   ipcMain.handle('updater:install-downloaded-update', () => {
     quitting = true
     installDownloadedUpdate()

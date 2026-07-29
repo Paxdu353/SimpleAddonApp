@@ -12,6 +12,7 @@ export interface RemoteAddon {
   displayName: string
   version: string | null
   required: boolean
+  beta: boolean
   fileName: string
   size: number
   updatedAt: string | null
@@ -54,6 +55,7 @@ export interface InjectorApi {
   refreshAddons: () => Promise<InjectorSnapshot>
   setAutoStartEnabled: (enabled: boolean) => Promise<InjectorSnapshot>
   getUpdateSnapshot: () => Promise<UpdateSnapshot>
+  checkForAppUpdates: () => Promise<UpdateSnapshot>
   installDownloadedUpdate: () => Promise<void>
   onUpdaterUpdate: (callback: (snapshot: UpdateSnapshot) => void) => () => void
   onInjectorUpdate: (callback: (snapshot: InjectorSnapshot) => void) => () => void

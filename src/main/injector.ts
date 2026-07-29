@@ -1,5 +1,15 @@
 import { app, BrowserWindow } from 'electron'
-import { access, copyFile, mkdir, readdir, readFile, stat, writeFile } from 'fs/promises'
+import {
+  access,
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile
+} from 'fs/promises'
 import { constants } from 'fs'
 import { dirname, join } from 'path'
 import { execFile } from 'child_process'
@@ -25,6 +35,7 @@ export interface RemoteAddon {
   displayName: string
   version: string | null
   required: boolean
+  beta: boolean
   fileName: string
   size: number
   updatedAt: string | null
@@ -76,11 +87,18 @@ const WATCHER_FILE_NAME = 'watcher.jar'
 const REQUIRED_ADDON_NAME = 'zeph'
 const MAX_LOGS = 200
 const CONFIG_FILE_NAME = 'injector-config.json'
+const WATCHER_CHECK_INTERVAL = 200
+const WATCHER_RECREATION_DELAY = 100
+const PROCESS_CHECK_INTERVAL = 1000
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 function isRequiredAddon(name: string): boolean {
   return name.toLowerCase().includes(REQUIRED_ADDON_NAME)
+}
+
+function isBetaAddon(name: string): boolean {
+  return /(?:^|[\s._/-])beta(?:$|[\s._/-])/i.test(name)
 }
 
 function parseAddonName(name: string): { displayName: string; version: string | null } {
@@ -89,19 +107,27 @@ function parseAddonName(name: string): { displayName: string; version: string | 
   )
 
   if (!versionMatch || versionMatch.index === undefined) {
+    const betaOnly = isBetaAddon(name)
+
     return {
-      displayName: cleanupAddonName(name),
-      version: null
+      displayName: cleanupAddonName(name.replace(/(?:^|[\s._/-])beta(?:$|[\s._/-])/i, ' ')),
+      version: betaOnly ? 'beta' : null
     }
   }
 
   const versionStart = versionMatch.index
   const versionEnd = versionStart + versionMatch[0].length
-  const displayName = cleanupAddonName(`${name.slice(0, versionStart)} ${name.slice(versionEnd)}`)
+  const beta = isBetaAddon(name)
+  const displayName = cleanupAddonName(
+    `${name.slice(0, versionStart)} ${name.slice(versionEnd)}`.replace(
+      /(?:^|[\s._/-])beta(?:$|[\s._/-])/i,
+      ' '
+    )
+  )
 
   return {
     displayName,
-    version: versionMatch[1]
+    version: beta ? `${versionMatch[1]} beta` : versionMatch[1]
   }
 }
 
@@ -337,6 +363,7 @@ export class NationsGloryInjector {
           displayName: addon.displayName,
           version: addon.version,
           required: addon.required,
+          beta: addon.beta,
           fileName: addon.fileName,
           size: addon.size,
           updatedAt: addon.updatedAt
@@ -402,6 +429,7 @@ export class NationsGloryInjector {
       displayName,
       version,
       required: isRequiredAddon(name),
+      beta: isBetaAddon(item.path),
       fileName,
       size: item.size ?? 0,
       updatedAt: null,
@@ -451,11 +479,11 @@ export class NationsGloryInjector {
     this.log('OK', 'Watcher installé automatiquement.')
 
     this.setStatus('waiting-game')
-    this.log('INFO', `En attente de ${GAME_PROCESS_NAME}.`)
+    this.log('INFO', 'En attente du processus NationsGlory.')
 
     while (!(await this.isGameRunning())) {
       this.setGameRunning(false)
-      await sleep(1000)
+      await sleep(PROCESS_CHECK_INTERVAL)
     }
 
     this.setGameRunning(true)
@@ -464,7 +492,7 @@ export class NationsGloryInjector {
 
     while (await this.pathExists(watcherDest)) {
       this.setGameRunning(await this.isGameRunning())
-      await sleep(500)
+      await sleep(WATCHER_CHECK_INTERVAL)
     }
 
     const selectedAddons = await this.resolveSelectedAddons()
@@ -480,6 +508,7 @@ export class NationsGloryInjector {
       await this.injectFile(addon.localPath, join(modsPath, addon.fileName))
     }
 
+    await sleep(WATCHER_RECREATION_DELAY)
     await this.injectFile(this.watcherPath, watcherDest)
 
     this.snapshot.lastInjectionAt = new Date().toISOString()
@@ -511,29 +540,38 @@ export class NationsGloryInjector {
     const appData = process.env.APPDATA
     if (!appData) return null
 
-    const root = join(appData, '.NationsGlory')
-    const versionsPath = join(root, 'versions')
-    const stableModsPath = join(versionsPath, 'stable', 'mods')
+    const knownModsPaths = [
+      join(appData, 'gg.recube.launcher', 'games', 'nationsglory', 'stable', 'mods'),
+      join(appData, '.NationsGlory', 'versions', 'stable', 'mods')
+    ]
 
-    if (await this.isDirectory(stableModsPath)) {
-      return stableModsPath
+    for (const modsPath of knownModsPaths) {
+      if (await this.isDirectory(modsPath)) {
+        return modsPath
+      }
     }
 
-    if (!(await this.isDirectory(versionsPath))) {
-      return null
-    }
+    const versionRoots = [
+      join(appData, 'gg.recube.launcher', 'games', 'nationsglory'),
+      join(appData, '.NationsGlory', 'versions')
+    ]
 
-    const versions = await readdir(versionsPath, { withFileTypes: true })
     const candidates: Array<{ path: string; mtimeMs: number }> = []
 
-    for (const entry of versions) {
-      if (!entry.isDirectory()) continue
+    for (const versionsPath of versionRoots) {
+      if (!(await this.isDirectory(versionsPath))) continue
 
-      const modsPath = join(versionsPath, entry.name, 'mods')
-      if (!(await this.isDirectory(modsPath))) continue
+      const versions = await readdir(versionsPath, { withFileTypes: true })
 
-      const info = await stat(modsPath)
-      candidates.push({ path: modsPath, mtimeMs: info.mtimeMs })
+      for (const entry of versions) {
+        if (!entry.isDirectory()) continue
+
+        const modsPath = join(versionsPath, entry.name, 'mods')
+        if (!(await this.isDirectory(modsPath))) continue
+
+        const info = await stat(modsPath)
+        candidates.push({ path: modsPath, mtimeMs: info.mtimeMs })
+      }
     }
 
     candidates.sort((a, b) => b.mtimeMs - a.mtimeMs)
@@ -546,7 +584,11 @@ export class NationsGloryInjector {
     }
 
     await mkdir(dirname(destination), { recursive: true })
-    await copyFile(source, destination)
+
+    const temporaryDestination = `${destination}.tmp`
+    await rm(temporaryDestination, { force: true })
+    await copyFile(source, temporaryDestination)
+    await rename(temporaryDestination, destination)
   }
 
   private async isGameRunning(): Promise<boolean> {
@@ -555,12 +597,34 @@ export class NationsGloryInjector {
     }
 
     try {
-      const { stdout } = await execFileAsync('tasklist', [
-        '/FI',
-        `IMAGENAME eq ${GAME_PROCESS_NAME}`,
-        '/NH'
+      const { stdout } = await execFileAsync('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        [
+          '$processes = Get-CimInstance Win32_Process | Select-Object ProcessId,Name,ExecutablePath,CommandLine;',
+          '$processes | ConvertTo-Json -Compress'
+        ].join(' ')
       ])
-      return stdout.toLowerCase().includes(GAME_PROCESS_NAME.toLowerCase())
+      const processes = JSON.parse(stdout || '[]') as Array<{
+        ProcessId?: number
+        Name?: string
+        ExecutablePath?: string
+        CommandLine?: string
+      }>
+      const processList = Array.isArray(processes) ? processes : [processes]
+
+      return processList.some((processInfo) => {
+        const name = (processInfo.Name ?? '').toLowerCase()
+        if (!['java.exe', 'javaw.exe', GAME_PROCESS_NAME.toLowerCase()].includes(name)) {
+          return false
+        }
+
+        const content =
+          `${processInfo.ExecutablePath ?? ''} ${processInfo.CommandLine ?? ''}`.toLowerCase()
+
+        return content.includes('nationsglory') || content.includes('games\\nationsglory')
+      })
     } catch {
       return false
     }
