@@ -135,6 +135,28 @@ function cleanupAddonName(name: string): string {
   return name.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || name
 }
 
+function normalizeAddonIdPart(value: string): string {
+  return (
+    cleanupAddonName(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || value.toLowerCase()
+  )
+}
+
+function createAddonId(displayName: string, beta: boolean): string {
+  const suffix = beta ? '-beta' : ''
+  return `${normalizeAddonIdPart(displayName)}${suffix}`
+}
+
+function createAddonIdFromPath(path: string): string {
+  const fileName = path.split(/[\\/]/).at(-1) ?? path
+  const name = fileName.replace(/\.jar$/i, '')
+  const { displayName } = parseAddonName(name)
+
+  return createAddonId(displayName, isBetaAddon(path))
+}
+
 export class NationsGloryInjector {
   private snapshot: InjectorSnapshot = {
     status: 'syncing',
@@ -345,6 +367,7 @@ export class NationsGloryInjector {
 
       this.watcherPath = await this.downloadJar(defaultBranch, watcher.path, cacheDir)
       this.snapshot.watcherReady = true
+      const previousAssets = new Map(this.assets)
       this.assets.clear()
 
       for (const addon of addons) {
@@ -353,6 +376,7 @@ export class NationsGloryInjector {
         this.assets.set(asset.id, asset)
       }
 
+      const selectionMigrated = this.migrateSelectedAddonIds(previousAssets)
       this.setSelectedAddonIds(this.withRequiredAddonIds(this.snapshot.selectedAddonIds))
 
       this.snapshot.addons = [...this.assets.values()]
@@ -374,7 +398,10 @@ export class NationsGloryInjector {
         this.assets.has(addonId)
       )
 
-      if (availableSelectedIds.length !== this.snapshot.selectedAddonIds.length) {
+      if (
+        selectionMigrated ||
+        availableSelectedIds.length !== this.snapshot.selectedAddonIds.length
+      ) {
         this.setSelectedAddonIds(availableSelectedIds)
         await this.saveConfig()
       }
@@ -424,7 +451,7 @@ export class NationsGloryInjector {
     const { displayName, version } = parseAddonName(name)
 
     return {
-      id: item.path,
+      id: createAddonId(displayName, isBetaAddon(item.path)),
       name,
       displayName,
       version,
@@ -711,6 +738,26 @@ export class NationsGloryInjector {
       .map((addon) => addon.id)
 
     return [...new Set([...requiredAddonIds, ...addonIds])]
+  }
+
+  private migrateSelectedAddonIds(previousAssets: Map<string, CachedAsset>): boolean {
+    const previousSelectedAddonIds = this.snapshot.selectedAddonIds
+    const selectedAddonIds = this.snapshot.selectedAddonIds.map((addonId) => {
+      if (this.assets.has(addonId)) return addonId
+
+      const previousAsset = previousAssets.get(addonId)
+      const stableAddonId = previousAsset
+        ? createAddonId(previousAsset.displayName, previousAsset.beta)
+        : createAddonIdFromPath(addonId)
+
+      return this.assets.has(stableAddonId) ? stableAddonId : addonId
+    })
+    const selectionMigrated = selectedAddonIds.some(
+      (addonId, index) => addonId !== previousSelectedAddonIds[index]
+    )
+
+    this.setSelectedAddonIds(selectedAddonIds)
+    return selectionMigrated
   }
 
   private setStatus(status: InjectorStatus): void {
